@@ -10,14 +10,14 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Attendance;
 use Illuminate\Support\Str;
-use SimpleSoftwareIO\QrCode\Facades\QrCode;
 use Carbon\Carbon;
 use Symfony\Component\HttpFoundation\Response;
-
+use Endroid\QrCode\QrCode;
+use Endroid\QrCode\Writer\PngWriter;
 
 class AttendanceController extends Controller
-{
 
+{
     public function showSessionQr(Session $session)
     {
         $dateNow = Carbon::now()->toDateString();
@@ -26,20 +26,29 @@ class AttendanceController extends Controller
         $startSession = Carbon::parse($session['startSession']);
         $closeSession = Carbon::parse($session['closeSession']);
 
-        if($session['date'] == $dateNow && $timeNow->between($startSession, $closeSession)) {
+        if ($session['date'] === $dateNow && $timeNow->between($startSession, $closeSession)) {
 
             $password = Str::random(12);
 
-            $qrCodeData = QrCode::format('png')->generate("{$session['id']}|{$password}|{$dateNow}|{$timeNow}");
+            $qrCodeData = "{$session->id}|{$password}|{$dateNow}|{$timeNow->toTimeString()}";
 
-            $base64Image = base64_encode($qrCodeData);
+            $qrCode = QrCode::create($qrCodeData);
+
+            $writer = new PngWriter();
+
+            $qrCodeImage = $writer->write($qrCode)->getString();
+
+            $base64Image = base64_encode($qrCodeImage);
 
             $session->update(['password' => $password]);
 
-            return Response::make($base64Image, 200)->header('Content-Type', 'image/png');
+            return response()->json([
+                'image' => $base64Image
+            ], 200);
         }
-        else
-            return response('Session is not active or time is incorrect.', 403);
+        else {
+            return response()->json(['message' => 'Session is not active or time is incorrect.'], 403);
+        }
     }
 
     public function scanQr(Request $request)
@@ -53,7 +62,7 @@ class AttendanceController extends Controller
 
         if($password == $session->password
             && Carbon::now()->toDateString() == $dateNow
-            && Carbon::now()->between($timeNow->addMinutes(1), $timeNow))
+            && Carbon::now()->between($timeNow->copy()->addMinutes(1), $timeNow))
         {
             $normalUser = NormalUser::where('userID', Auth::id())->first();
 
